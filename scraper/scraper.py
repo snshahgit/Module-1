@@ -17,53 +17,48 @@ import json
 
 def login(driver, username, password):
     try:
-        login_button = WebDriverWait(driver, 10).until(
+        login_button = WebDriverWait(driver, 20).until(
             EC.element_to_be_clickable((By.CLASS_NAME, "combinedLoginLinkWrapper"))
         )
         login_button.click()
 
-        WebDriverWait(driver, 10).until(
-            EC.element_to_be_clickable((By.CLASS_NAME, "guts"))
-        )
-
-        email = WebDriverWait(driver, 10).until(
+        email = WebDriverWait(driver, 20).until(
             EC.element_to_be_clickable((By.CLASS_NAME, "email"))
         )
         email.send_keys(username)
 
-        next_button = WebDriverWait(driver, 10).until(
+        next_button = WebDriverWait(driver, 20).until(
             EC.element_to_be_clickable((By.CLASS_NAME, "button.Button.submitButton.primary"))
         )
         next_button.click()
 
-        password_field = WebDriverWait(driver, 10).until(
+        password_field = WebDriverWait(driver, 20).until(
             EC.element_to_be_clickable((By.CLASS_NAME, "password"))
         )
         password_field.send_keys(password)
 
-        submit_button = WebDriverWait(driver, 10).until(
+        submit_button = WebDriverWait(driver, 20).until(
             EC.element_to_be_clickable((By.CLASS_NAME, "button.Button.submitButton.v3.primary"))
         )
         submit_button.click()
-    except TimeoutException:
-        print("Login elements not found within the timeout period")
-    except NoSuchElementException:
-        print("Login elements not found")
-    except WebDriverException as e:
-        print(f"WebDriver exception occurred during login: {e}")
+
+        WebDriverWait(driver, 20).until(
+            EC.presence_of_element_located((By.ID, "userMenu"))
+        )
+    except (TimeoutException, NoSuchElementException, WebDriverException) as e:
+        print(f"Error during login: {e}")
+        raise e
 
 def get_all_rental_properties(driver, pin, house_type):
     try:
-        WebDriverWait(driver, 20).until(
+        WebDriverWait(driver, 30).until(
             EC.presence_of_element_located((By.CLASS_NAME, "HomeViews"))
         )
         property_list = driver.find_elements(By.CLASS_NAME, "bp-Homecard__Content")
         data = get_data(driver, property_list, pin, house_type)
         return data
-    except TimeoutException:
-        print("Property listings not found within the timeout period")
-    except WebDriverException as e:
-        print(f"WebDriver exception occurred while fetching rental properties: {e}")
+    except (TimeoutException, WebDriverException) as e:
+        print(f"Error while fetching rental properties: {e}")
         return []
 
 def get_data(driver, property_list, pin, house_type):
@@ -73,7 +68,7 @@ def get_data(driver, property_list, pin, house_type):
     for property in property_list:
         try:
             property.click()
-            WebDriverWait(driver, 10).until(EC.number_of_windows_to_be(2))
+            WebDriverWait(driver, 20).until(EC.number_of_windows_to_be(2))
             new_window = [window for window in driver.window_handles if window != original_window][0]
             driver.switch_to.window(new_window)
 
@@ -125,16 +120,26 @@ def get_data(driver, property_list, pin, house_type):
 
             driver.close()
             driver.switch_to.window(original_window)
-        except TimeoutException:
-            print("Property details not found within the timeout period")
-        except NoSuchElementException:
-            print("Property details not found")
-        except WebDriverException as e:
-            print(f"WebDriver exception occurred while fetching property data: {e}")
+        except (TimeoutException, NoSuchElementException, WebDriverException) as e:
+            print(f"Error while fetching property data: {e}")
             driver.close()
             driver.switch_to.window(original_window)
 
     return data
+
+def retry(func, max_attempts=3, *args, **kwargs):
+    attempts = 0
+    while attempts < max_attempts:
+        try:
+            result = func(*args, **kwargs)
+            return result
+        except (TimeoutException, WebDriverException) as e:
+            print(f"Error occurred: {e}. Retrying {attempts + 1}/{max_attempts}...")
+            attempts += 1
+            time.sleep(5)  # Adding delay between retries
+    print(f"Failed after {max_attempts} attempts.")
+    return None
+
 def scrape_properties(pin_codes):
     server_url = 'http://localhost:5000/add_properties'
 
@@ -149,16 +154,13 @@ def scrape_properties(pin_codes):
         username = 'shahsau1@msu.edu'
         password = 'P@ssw0rd'
         driver.get(url)
-        login(driver, username, password)
-
-        WebDriverWait(driver, 20).until(
-            EC.presence_of_element_located((By.ID, "userMenu"))
-        )
+        
+        retry(login, 3, driver, username, password)
 
         try:
             house_type = random.choice(['house', 'townhouse', 'condo'])
             driver.get(f"https://www.redfin.com/zipcode/{pin}")
-            data = get_all_rental_properties(driver, pin, house_type)
+            data = retry(get_all_rental_properties, 3, driver, pin, house_type)
             if data:
                 try:
                     response = requests.post(server_url, json=data)
@@ -170,10 +172,8 @@ def scrape_properties(pin_codes):
                     print(f"An error occurred while sending data for pin code {pin} to the server: {e}")
                     traceback.print_exc()
             time.sleep(random.uniform(5, 10))  # Random sleep to avoid getting blocked
-        except TimeoutException:
-            print(f"Loading took too much time for pin code: {pin}")
-        except WebDriverException as e:
-            print(f"WebDriver exception occurred: {e}")
+        except (TimeoutException, WebDriverException) as e:
+            print(f"Error occurred for pin code {pin}: {e}")
         except Exception as e:
             print(f"An unexpected error occurred for pin code {pin}: {e}")
             traceback.print_exc()
