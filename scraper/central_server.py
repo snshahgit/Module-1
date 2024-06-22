@@ -1,6 +1,7 @@
 from flask import Flask, request, jsonify
 from pymongo import MongoClient
 from mongodb_connection import get_database
+from pymongo.errors import DuplicateKeyError
 
 app = Flask(__name__)
 
@@ -9,14 +10,24 @@ def add_properties():
     data = request.json
     if not data:
         return jsonify({"error": "No data provided"}), 400
-    
     db = get_database()
-    properties_collection = db.properties
-    try:
-        result = properties_collection.insert_many(data)
-        return jsonify({"inserted_ids": str(result.inserted_ids)}), 200
-    except Exception as e:
-        return jsonify({"error": str(e)}), 500
+    properties_collection = db.Properties
+    inserted_ids = []
+    for property_data in data:
+        try:
+            result = properties_collection.update_one(
+                {"address": property_data["address"]},  # Find the document by address
+                {"$set": property_data},  # Update the document with new data
+                upsert=True  # Insert the document if it doesn't exist
+            )
+            if result.upserted_id is not None:
+                inserted_ids.append(str(result.upserted_id))
+            else:
+                inserted_ids.append(f"Updated property: {property_data['address']}")
+        except Exception as e:
+            return jsonify({"error": str(e)}), 500
+    
+    return jsonify({"inserted_or_updated": inserted_ids}), 200
 
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=5000)

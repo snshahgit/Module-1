@@ -1,21 +1,18 @@
+import asyncio
+import aiohttp
+from aiohttp import ClientSession
 from selenium import webdriver
-from selenium.webdriver.common.keys import Keys
 from selenium.webdriver.common.by import By
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 from selenium.common.exceptions import TimeoutException, NoSuchElementException, WebDriverException
 from selenium.webdriver.chrome.options import Options
-import time
-import random
-import traceback
-from pymongo.errors import BulkWriteError
-from mongodb_connection import get_database
 from selenium.webdriver.chrome.service import Service
 from webdriver_manager.chrome import ChromeDriverManager
-import requests
-import json
+import random
+import traceback
 
-def login(driver, username, password):
+async def login(driver, username, password):
     try:
         login_button = WebDriverWait(driver, 20).until(
             EC.element_to_be_clickable((By.CLASS_NAME, "combinedLoginLinkWrapper"))
@@ -49,19 +46,19 @@ def login(driver, username, password):
         print(f"Error during login: {e}")
         raise e
 
-def get_all_rental_properties(driver, pin, house_type):
+async def get_all_rental_properties(driver, pin, house_type):
     try:
         WebDriverWait(driver, 30).until(
             EC.presence_of_element_located((By.CLASS_NAME, "HomeViews"))
         )
         property_list = driver.find_elements(By.CLASS_NAME, "bp-Homecard__Content")
-        data = get_data(driver, property_list, pin, house_type)
+        data = await get_data(driver, property_list, pin, house_type)
         return data
     except (TimeoutException, WebDriverException) as e:
         print(f"Error while fetching rental properties: {e}")
         return []
 
-def get_data(driver, property_list, pin, house_type):
+async def get_data(driver, property_list, pin, house_type):
     data = []
     original_window = driver.current_window_handle
 
@@ -127,70 +124,74 @@ def get_data(driver, property_list, pin, house_type):
 
     return data
 
-def retry(func, max_attempts=3, *args, **kwargs):
+async def send_data(session, server_url, data, pin):
+    try:
+        async with session.post(server_url, json=data) as response:
+            if response.status == 200:
+                print(f"Successfully inserted data for pin code {pin}")
+            else:
+                print(f"Failed to insert data for pin code {pin}: {await response.text()}")
+    except Exception as e:
+        print(f"An error occurred while sending data for pin code {pin} to the server: {e}")
+        traceback.print_exc()
+
+async def scrape_properties(pin_codes):
+    server_url = 'http://localhost:5000/add_properties'
+
+    async with aiohttp.ClientSession() as session:
+        for pin in pin_codes:
+            chrome_options = Options()
+            chrome_options.add_argument('--ignore-certificate-errors')
+            chrome_options.add_argument('--ignore-ssl-errors')
+            driver = webdriver.Chrome(service=Service(ChromeDriverManager().install()), options=chrome_options)
+            driver.set_page_load_timeout(60)
+            url = 'https://www.redfin.com/'
+
+            username = 'shahsau1@msu.edu'
+            password = 'P@ssw0rd'
+            driver.get(url)
+            
+            await retry(login, 3, driver, username, password)
+
+            try:
+                house_type = random.choice(['house', 'townhouse', 'condo'])
+                driver.get(f"https://www.redfin.com/zipcode/{pin}")
+                data = await retry(get_all_rental_properties, 3, driver, pin, house_type)
+                if data:
+                    print(data)
+                    asyncio.create_task(send_data(session, server_url, data, pin))
+                await asyncio.sleep(random.uniform(5, 10))  # Random sleep to avoid getting blocked
+            except (TimeoutException, WebDriverException) as e:
+                print(f"Error occurred for pin code {pin}: {e}")
+            except Exception as e:
+                print(f"An unexpected error occurred for pin code {pin}: {e}")
+                traceback.print_exc()
+            finally:
+                driver.quit()
+
+async def retry(func, max_attempts=3, *args, **kwargs):
     attempts = 0
     while attempts < max_attempts:
         try:
-            result = func(*args, **kwargs)
+            result = await func(*args, **kwargs)
             return result
         except (TimeoutException, WebDriverException) as e:
             print(f"Error occurred: {e}. Retrying {attempts + 1}/{max_attempts}...")
             attempts += 1
-            time.sleep(5)  # Adding delay between retries
+            await asyncio.sleep(5)  # Adding delay between retries
     print(f"Failed after {max_attempts} attempts.")
     return None
 
-def scrape_properties(pin_codes):
-    server_url = 'http://localhost:5000/add_properties'
-
-    for pin in pin_codes:
-        chrome_options = Options()
-        chrome_options.add_argument('--ignore-certificate-errors')
-        chrome_options.add_argument('--ignore-ssl-errors')
-        driver = webdriver.Chrome(service=Service(ChromeDriverManager().install()), options=chrome_options)
-        driver.set_page_load_timeout(60)
-        url = 'https://www.redfin.com/'
-
-        username = 'shahsau1@msu.edu'
-        password = 'P@ssw0rd'
-        driver.get(url)
-        
-        retry(login, 3, driver, username, password)
-
-        try:
-            house_type = random.choice(['house', 'townhouse', 'condo'])
-            driver.get(f"https://www.redfin.com/zipcode/{pin}")
-            data = retry(get_all_rental_properties, 3, driver, pin, house_type)
-            if data:
-                try:
-                    response = requests.post(server_url, json=data)
-                    if response.status_code == 200:
-                        print(f"Successfully inserted data for pin code {pin}")
-                    else:
-                        print(f"Failed to insert data for pin code {pin}: {response.text}")
-                except Exception as e:
-                    print(f"An error occurred while sending data for pin code {pin} to the server: {e}")
-                    traceback.print_exc()
-            time.sleep(random.uniform(5, 10))  # Random sleep to avoid getting blocked
-        except (TimeoutException, WebDriverException) as e:
-            print(f"Error occurred for pin code {pin}: {e}")
-        except Exception as e:
-            print(f"An unexpected error occurred for pin code {pin}: {e}")
-            traceback.print_exc()
-        finally:
-            driver.quit()
-
-def main():
+async def main():
     file_path = 'zipcodes.txt'
     try:
         with open(file_path, 'r') as file:
             pin_codes = [line.strip() for line in file.readlines()]
-            print(pin_codes)
-            scrape_properties(pin_codes)
+            await scrape_properties(pin_codes)
     except FileNotFoundError:
         print(f"File not found: {file_path}")
     except Exception as e:
         print(f"An error occurred while reading the file: {e}")
 
 if __name__ == "__main__":
-    main()
+    asyncio.run(main())

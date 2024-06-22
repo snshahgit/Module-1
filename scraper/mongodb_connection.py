@@ -7,12 +7,17 @@ def get_mongo_client():
     client = MongoClient(uri, server_api=ServerApi('1'))
     return client
 
+def create_unique_index(db):
+    db.Properties.create_index([("address", 1)], unique=True)
+
 def get_database():
     client = get_mongo_client()
+    db= client.Real_Estate
+    create_unique_index(db)
     try:
         client.admin.command('ping')
         print("Pinged your deployment. You successfully connected to MongoDB!")
     except Exception as e:
         print(f"An error occurred: {e}")
     # Return the Real_Estate database
-    return client.Real_Estate
+    return db

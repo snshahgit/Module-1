@@ -2,6 +2,7 @@ Flask==2.1.2
 pymongo==4.2.0
 requests==2.28.1
 selenium==4.1.0
-webdriver-manager==3.5.2
+webdriver-manager
 fake-useragent==0.1.11
 beautifulsoup4
+aiohttp
