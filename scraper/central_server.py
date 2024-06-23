@@ -1,13 +1,13 @@
 from flask import Flask, request, jsonify
-from pymongo import MongoClient
-from mongodb_connection import get_database
 from pymongo.errors import DuplicateKeyError
+from mongodb_connection import get_database
 
 app = Flask(__name__)
 
 @app.route('/add_properties', methods=['POST'])
 def add_properties():
     data = request.json
+    print("Adding data to db")
     if not data:
         return jsonify({"error": "No data provided"}), 400
     db = get_database()

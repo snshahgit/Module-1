@@ -1,8 +1,6 @@
-Flask==2.1.2
-pymongo==4.2.0
-requests==2.28.1
+Flask==2.1.1
+pymongo==3.12.1
+aiohttp==3.8.1
 selenium==4.1.0
 webdriver-manager
-fake-useragent==0.1.11
-beautifulsoup4
-aiohttp
+Werkzeug==2.0.3
